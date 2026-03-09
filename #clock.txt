@@ -1,0 +1,16 @@
+#clock 
+import tm1637
+from time import sleep
+
+display = tm1637.TM1637(CLK=21, DIO=20, brightness=1.0)
+
+print("Clock starting...")
+display.start_clock()
+
+try:
+    sleep(30)
+except KeyboardInterrupt:
+    pass
+
+display.stop_clock()
+display.cleanup()

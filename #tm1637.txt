@@ -1,0 +1,100 @@
+#tm1637
+import math
+import threading
+from time import sleep, localtime
+import RPi.GPIO as GPIO
+
+GPIO.setwarnings(False)
+GPIO.setmode(GPIO.BCM)
+
+HEX_DIGITS = [
+    0x3f, 0x06, 0x5b, 0x4f,
+    0x66, 0x6d, 0x7d, 0x07,
+    0x7f, 0x6f
+]
+
+ADDR_AUTO = 0x40
+STARTADDR = 0xC0
+
+
+class TM1637:
+
+    def _init_(self, CLK, DIO, brightness=1.0):
+        self.clk = CLK
+        self.dio = DIO
+        self.double_point = False
+        self.current_data = [0, 0, 0, 0]
+        self.set_brightness(brightness)
+
+        GPIO.setup(self.clk, GPIO.OUT)
+        GPIO.setup(self.dio, GPIO.OUT)
+
+    def set_brightness(self, percent):
+        percent = max(0, min(1, percent))
+        self.brightness = int(math.ceil(7 * percent))
+
+    def start(self):
+        GPIO.output(self.clk, GPIO.HIGH)
+        GPIO.output(self.dio, GPIO.HIGH)
+        GPIO.output(self.dio, GPIO.LOW)
+        GPIO.output(self.clk, GPIO.LOW)
+
+    def stop(self):
+        GPIO.output(self.clk, GPIO.LOW)
+        GPIO.output(self.dio, GPIO.LOW)
+        GPIO.output(self.clk, GPIO.HIGH)
+        GPIO.output(self.dio, GPIO.HIGH)
+
+    def write_byte(self, data):
+        for _ in range(8):
+            GPIO.output(self.clk, GPIO.LOW)
+            GPIO.output(self.dio, GPIO.HIGH if data & 0x01 else GPIO.LOW)
+            data >>= 1
+            GPIO.output(self.clk, GPIO.HIGH)
+
+        GPIO.output(self.clk, GPIO.LOW)
+        GPIO.setup(self.dio, GPIO.IN)
+        GPIO.output(self.clk, GPIO.HIGH)
+        sleep(0.001)
+        GPIO.setup(self.dio, GPIO.OUT)
+
+    def show(self, data):
+        self.current_data = data
+
+        self.start()
+        self.write_byte(ADDR_AUTO)
+        self.stop()
+
+        self.start()
+        self.write_byte(STARTADDR)
+
+        for d in data:
+            self.write_byte(HEX_DIGITS[d])
+
+        self.stop()
+
+        self.start()
+        self.write_byte(0x88 + self.brightness)
+        self.stop()
+
+    def start_clock(self):
+        self.stop_event = threading.Event()
+        threading.Thread(target=self.clock, daemon=True).start()
+
+    def clock(self):
+        while not self.stop_event.is_set():
+            t = localtime()
+            hour = t.tm_hour
+            self.show([
+                hour // 10,
+                hour % 10,
+                t.tm_min // 10,
+                t.tm_min % 10
+            ])
+            sleep(1)
+
+    def stop_clock(self):
+        self.stop_event.set()
+
+    def cleanup(self):
+        GPIO.cleanup()
